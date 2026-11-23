@@ -1,0 +1,10 @@
+# SQLite database (local dev)
+data/
+
+# Build output
+/exercise-logger
+
+# Local env overrides (e.g. TZ)
+.env
+
+.DS_Store

@@ -1,0 +1,27 @@
+{{define "layout"}}<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{.Title}} · Exercise Logger</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <header>
+    <nav>
+      <a href="/" class="brand">🏋️ Logger</a>
+      <a href="/"          {{if eq .Nav "log"}}class="active"{{end}}>Log</a>
+      <a href="/progress"  {{if eq .Nav "progress"}}class="active"{{end}}>Progress</a>
+      <a href="/sessions"  {{if eq .Nav "sessions"}}class="active"{{end}}>Sessions</a>
+      <a href="/presets"   {{if eq .Nav "presets"}}class="active"{{end}}>Presets</a>
+      <a href="/exercises" {{if eq .Nav "exercises"}}class="active"{{end}}>Exercises</a>
+      <a href="/export"    {{if eq .Nav "export"}}class="active"{{end}}>Export</a>
+    </nav>
+  </header>
+  <main>
+    {{with .Flash}}<p class="flash ok">{{.}}</p>{{end}}
+    {{with .Error}}<p class="flash err">{{.}}</p>{{end}}
+    {{template "content" .}}
+  </main>
+</body>
+</html>{{end}}

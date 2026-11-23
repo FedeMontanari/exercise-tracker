@@ -1,0 +1,23 @@
+{{define "content"}}
+<h1>Exercises</h1>
+
+<form method="post" action="/exercises" class="card row-form">
+  <input name="name" placeholder="New exercise name" required>
+  <input name="notes" placeholder="Notes (optional)">
+  <button type="submit" class="primary">Add</button>
+</form>
+
+{{range .Exercises}}
+  {{/* One form per row. The Delete button uses formaction to post the same
+       form to a different URL, avoiding nested forms. */}}
+  <form method="post" action="/exercises/{{.ID}}" class="card row-form">
+    <input name="name" value="{{.Name}}" required aria-label="Name">
+    <input name="notes" value="{{.Notes}}" placeholder="Notes" aria-label="Notes">
+    <button type="submit">Save</button>
+    <button type="submit" class="link danger" formaction="/exercises/{{.ID}}/delete" formnovalidate
+            onclick="return confirm('Delete this exercise? It is removed from presets; its logged sets are kept.')">Delete</button>
+  </form>
+{{else}}
+  <p class="muted">No exercises yet.</p>
+{{end}}
+{{end}}

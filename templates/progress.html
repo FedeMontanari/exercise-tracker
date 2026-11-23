@@ -1,0 +1,65 @@
+{{define "content"}}
+<h1>Progress</h1>
+
+{{if .Preset}}
+  <nav class="tabs" aria-label="Preset">
+    {{range .Presets}}
+      <a href="/progress?preset={{.ID}}&n={{$.N}}" {{if eq .ID $.Preset.ID}}class="active"{{end}}>{{.Name}}</a>
+    {{end}}
+  </nav>
+  <p class="hint">
+    Show:
+    <a href="/progress?preset={{.Preset.ID}}&n=8"  {{if eq .N 8}}class="current"{{end}}>last 8</a> ·
+    <a href="/progress?preset={{.Preset.ID}}&n=16" {{if eq .N 16}}class="current"{{end}}>last 16</a> ·
+    <a href="/progress?preset={{.Preset.ID}}&n=0"  {{if eq .N 0}}class="current"{{end}}>all</a>
+  </p>
+
+  {{if .Sessions}}
+    <div class="table-wrap" id="grid-wrap">
+      <table class="grid">
+        <thead>
+          <tr>
+            <th class="sticky">Exercise</th>
+            {{range .Sessions}}
+              <th><a href="/sessions/{{.ID}}/edit">{{.PerformedAt.Format "02 Jan"}}</a><br><small class="muted">{{.PerformedAt.Format "Mon"}}</small></th>
+            {{end}}
+          </tr>
+        </thead>
+        <tbody>
+          {{range .Rows}}
+            <tr>
+              <th class="sticky">{{.Name}}</th>
+              {{range .Cells}}
+                <td>
+                  {{if .Reps}}
+                    {{with .Weight}}<div class="w">{{.}} {{unit}}</div>{{end}}
+                    {{if .Up}}<div class="trend up" title="weight up">▲</div>{{else if .Down}}<div class="trend down" title="weight down">▼</div>{{end}}
+                    <div class="reps">{{.Reps}}</div>
+                  {{else}}<span class="muted">·</span>{{end}}
+                </td>
+              {{end}}
+            </tr>
+          {{end}}
+          <tr class="meta">
+            <th class="sticky">Energy</th>
+            {{range .Sessions}}<td><span class="badge" style="--hue: {{mul .Energy 12}}">{{.Energy}}</span></td>{{end}}
+          </tr>
+          <tr class="meta">
+            <th class="sticky">Warm-up</th>
+            {{range .Sessions}}<td>{{if .WarmupDone}}✅{{else}}<span class="muted">—</span>{{end}}</td>{{end}}
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    <script>
+      // Newest sessions are on the right: start scrolled there on narrow screens.
+      const wrap = document.getElementById("grid-wrap");
+      wrap.scrollLeft = wrap.scrollWidth;
+    </script>
+  {{else}}
+    <p class="muted">No {{.Preset.Name}} sessions logged yet.</p>
+  {{end}}
+{{else}}
+  <p class="muted">No presets yet — <a href="/presets/new">create one</a> first.</p>
+{{end}}
+{{end}}

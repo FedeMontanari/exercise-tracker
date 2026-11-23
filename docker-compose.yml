@@ -1,0 +1,17 @@
+services:
+  exercise-logger:
+    build: .
+    image: exercise-logger:latest
+    container_name: exercise-logger
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      # Your local timezone, so "now" and the logged times are correct.
+      # Set TZ in a .env file next to this one, or edit the default here.
+      TZ: ${TZ:-UTC}
+      # Label shown next to weights: kg or lb.
+      WEIGHT_UNIT: ${WEIGHT_UNIT:-kg}
+    volumes:
+      # The SQLite database lives in ./data on the host — back up this folder.
+      - ./data:/data

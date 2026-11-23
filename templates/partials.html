@@ -1,0 +1,158 @@
+{{/* Shared snippets used by several pages. */}}
+
+{{define "sessionForm"}}
+<form method="post" action="{{.Action}}" class="card session-form">
+
+  {{/* 1. Date & time */}}
+  <label class="field">
+    <span>Date &amp; time</span>
+    <input type="datetime-local" name="performed_at" value="{{.Session.PerformedAt.Format "2006-01-02T15:04"}}" required>
+  </label>
+
+  {{/* 2. Warm-up */}}
+  <label class="check toggle">
+    <input type="checkbox" name="warmup" {{if .Session.WarmupDone}}checked{{end}}>
+    <span>Warm-up done</span>
+  </label>
+
+  {{/* 3. Energy */}}
+  <fieldset>
+    <legend>Energy level</legend>
+    <div class="energy">
+      {{range energyLevels}}
+        <label style="--hue: {{mul . 12}}">
+          <input type="radio" name="energy" value="{{.}}" required {{if eq . $.Session.Energy}}checked{{end}}>
+          <span>{{.}}</span>
+        </label>
+      {{end}}
+    </div>
+    <div class="scale"><small>0 · drained</small><small>10 · on fire</small></div>
+  </fieldset>
+
+  {{/* 4. Session (preset) */}}
+  <fieldset>
+    <legend>Session</legend>
+    {{if .Choosable}}
+      <div class="pills">
+        {{range .Blocks}}
+          <label>
+            <input type="radio" name="preset_id" value="{{.PresetID}}" required {{if .Selected}}checked{{end}}>
+            <span>{{.Name}}</span>
+          </label>
+        {{end}}
+      </div>
+    {{else}}
+      {{range .Blocks}}<p class="session-name">{{.Name}}</p>{{end}}
+    {{end}}
+  </fieldset>
+
+  {{/* 5. Exercises: one block per preset; only the selected one is shown.
+       Hidden blocks are also disabled, so their inputs aren't submitted. */}}
+  {{range $b := .Blocks}}
+    <fieldset class="exercises" data-preset="{{$b.PresetID}}" {{if not $b.Selected}}disabled hidden{{end}}>
+      <legend>Exercises</legend>
+      {{range $row := $b.Rows}}
+        <div class="ex-row">
+          {{if $row.Deleted}}
+            <div class="ex-name">
+              <strong>{{$row.Name}}</strong>
+              <small class="muted">{{$row.Summary}} · deleted exercise, kept as logged</small>
+            </div>
+          {{else}}
+            {{/* The hidden input lists this exercise; its weight/reps fields are keyed by id. */}}
+            <input type="hidden" name="exercise" value="{{$row.ExerciseID}}">
+            <div class="ex-head">
+              <div class="ex-name">
+                <strong>{{$row.Name}}</strong>
+                {{with $row.Last}}<small class="muted">{{.}}</small>{{end}}
+              </div>
+              {{if $row.Last}}<button type="button" class="repeat" data-repeat title="Fill in last time's reps">↺ Same</button>{{end}}
+            </div>
+            <div class="ex-inputs">
+              <label class="weight">
+                <input type="number" name="weight_{{$row.ExerciseID}}" value="{{$row.Weight}}"
+                       min="0" step="any" inputmode="decimal" placeholder="—" aria-label="{{$row.Name}} weight">
+                <span>{{unit}}</span>
+              </label>
+              <span class="times">×</span>
+              <div class="sets">
+                {{range $i, $c := $row.Sets}}
+                  <input type="number" name="reps_{{$row.ExerciseID}}" value="{{$c.Value}}" placeholder="{{$c.Placeholder}}"
+                         min="0" step="1" inputmode="numeric" aria-label="{{$row.Name}} set {{add $i 1}} reps">
+                {{end}}
+              </div>
+            </div>
+          {{end}}
+        </div>
+      {{else}}
+        <p class="muted">No exercises in {{$b.Name}} yet{{if $b.PresetID}} — <a href="/presets/{{$b.PresetID}}/edit">add some</a>{{end}}.</p>
+      {{end}}
+      <p class="hint">Grey numbers are last time's reps. Leave an exercise empty to skip it.</p>
+    </fieldset>
+  {{end}}
+
+  {{/* 6. Notes */}}
+  <label class="field">
+    <span>Notes <small class="muted">(optional)</small></span>
+    <textarea name="notes" rows="2" placeholder="How did it go?">{{.Session.Notes}}</textarea>
+  </label>
+
+  {{/* 7. Submit — sticks to the bottom of the screen while scrolling the form */}}
+  <button type="submit" class="primary submit">{{.SubmitLabel}}</button>
+</form>
+
+<script>
+  // Switching preset: show that preset's exercises, hide (and disable) the rest.
+  document.querySelectorAll('input[name="preset_id"]').forEach((radio) => {
+    radio.addEventListener("change", () => {
+      document.querySelectorAll("fieldset[data-preset]").forEach((fs) => {
+        const on = fs.dataset.preset === radio.value;
+        fs.disabled = !on;
+        fs.hidden = !on;
+      });
+      history.replaceState(null, "", "/?preset=" + radio.value); // survives a refresh
+    });
+  });
+
+  // "↺ Same": copy last time's reps (the grey placeholders) into empty boxes.
+  document.querySelectorAll("[data-repeat]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      btn.closest(".ex-row").querySelectorAll(".sets input").forEach((input) => {
+        if (!input.value) input.value = input.placeholder;
+      });
+    });
+  });
+</script>
+{{end}}
+
+{{define "sessionTable"}}
+<div class="table-wrap">
+<table>
+  <thead><tr><th>When</th><th>Workout</th><th>Energy</th><th>Warm-up</th><th></th></tr></thead>
+  <tbody>
+  {{range .}}
+    <tr>
+      <td class="nowrap">{{.PerformedAt.Format "Mon 02 Jan 2006"}}<br><small class="muted">{{.PerformedAt.Format "15:04"}}</small></td>
+      <td>
+        <strong>{{.PresetName}}</strong>
+        {{range .Exercises}}
+          <br><small><span class="muted">{{.Name}}</span> {{with .WeightText}}{{.}} {{unit}} × {{end}}{{.RepsText}}</small>
+        {{end}}
+        {{with .Notes}}<br><small>📝 {{.}}</small>{{end}}
+      </td>
+      <td><span class="badge" style="--hue: {{mul .Energy 12}}">{{.Energy}}</span></td>
+      <td>{{if .WarmupDone}}✅{{else}}<span class="muted">—</span>{{end}}</td>
+      <td class="actions">
+        <a href="/sessions/{{.ID}}/edit">Edit</a>
+        <form method="post" action="/sessions/{{.ID}}/delete" onsubmit="return confirm('Delete this session?')">
+          <button class="link danger">Delete</button>
+        </form>
+      </td>
+    </tr>
+  {{else}}
+    <tr><td colspan="5" class="muted">No sessions yet.</td></tr>
+  {{end}}
+  </tbody>
+</table>
+</div>
+{{end}}

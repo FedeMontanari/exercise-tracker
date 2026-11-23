@@ -1,0 +1,12 @@
+{{define "content"}}
+<h1>Log a session</h1>
+
+{{with .Form}}
+  {{template "sessionForm" .}}
+{{else}}
+  <p class="muted">No presets yet — <a href="/presets/new">create one</a> first.</p>
+{{end}}
+
+<h2>Recent sessions <a href="/sessions" class="more">see all →</a></h2>
+{{template "sessionTable" .Recent}}
+{{end}}

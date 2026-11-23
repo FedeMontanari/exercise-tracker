@@ -1,0 +1,26 @@
+{{define "content"}}
+<h1>Presets</h1>
+<p><a href="/presets/new" class="button">+ New preset</a></p>
+
+{{range .Presets}}
+  <div class="card preset">
+    <div>
+      <h3>{{.Name}}</h3>
+      {{if .Exercises}}
+        <ol>{{range .Exercises}}<li>{{.Name}} <small class="muted">· {{.Sets}} sets</small></li>{{end}}</ol>
+      {{else}}
+        <p class="muted">No exercises.</p>
+      {{end}}
+    </div>
+    <div class="actions">
+      <a href="/presets/{{.ID}}/edit">Edit</a>
+      <form method="post" action="/presets/{{.ID}}/delete"
+            onsubmit="return confirm('Delete preset {{.Name}}? Sessions logged with it are kept.')">
+        <button class="link danger">Delete</button>
+      </form>
+    </div>
+  </div>
+{{else}}
+  <p class="muted">No presets yet.</p>
+{{end}}
+{{end}}

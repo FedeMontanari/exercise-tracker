@@ -1,0 +1,5 @@
+{{define "content"}}
+<h1>Sessions <small class="muted">({{len .Sessions}})</small></h1>
+<p><a href="/" class="button">+ Log a session</a></p>
+{{template "sessionTable" .Sessions}}
+{{end}}

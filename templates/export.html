@@ -1,0 +1,34 @@
+{{define "content"}}
+<h1>Export</h1>
+<p>
+  {{.Count}} session{{if ne .Count 1}}s{{end}} logged{{if .Count}}, from {{.First}} to {{.Last}}{{end}}.
+  Pick a period and download it as CSV.
+</p>
+
+<form method="get" action="/export/sessions.csv" class="card">
+  <div class="two-col">
+    <label class="field">
+      <span>From</span>
+      <input type="date" name="from" value="{{.First}}">
+    </label>
+    <label class="field">
+      <span>To</span>
+      <input type="date" name="to" value="{{.Today}}">
+    </label>
+  </div>
+  <button type="submit" class="primary">Download CSV</button>
+</form>
+
+<p class="quick">
+  Quick:
+  {{range $i, $r := .Ranges}}{{if $i}} · {{end}}<a href="/export/sessions.csv?from={{$r.From}}&to={{$r.To}}">{{$r.Label}}</a>{{end}}
+</p>
+
+<details class="card">
+  <summary>What's in the file</summary>
+  <p>One row per set — the easiest shape to filter, pivot and chart:</p>
+  <p><code>session_id, date, time, weekday, preset, energy, warmup_done, notes, exercise, weight, set, reps</code></p>
+  <p class="muted">Session details repeat on each of its rows. A session logged with no sets still gets one row,
+    with the exercise columns empty.</p>
+</details>
+{{end}}

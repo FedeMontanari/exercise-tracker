@@ -1,0 +1,38 @@
+{{define "content"}}
+<h1>{{.Title}}</h1>
+
+<form method="post" action="{{.Action}}" class="card">
+  <label class="field">
+    <span>Name</span>
+    <input name="name" value="{{.Preset.Name}}" placeholder="e.g. Day A" required autofocus>
+  </label>
+
+  <fieldset>
+    <legend>Exercises</legend>
+    <p class="hint">Tick to include. <strong>#</strong> sets the order, <strong>sets</strong> how many reps boxes the log form shows.</p>
+    {{range .Rows}}
+      <div class="pick">
+        <label class="check">
+          <input type="checkbox" name="exercise" value="{{.Exercise.ID}}" {{if .Checked}}checked{{end}}>
+          <span>{{.Exercise.Name}}</span>
+        </label>
+        <div class="pick-nums">
+          <label><small>#</small>
+            <input type="number" name="pos_{{.Exercise.ID}}" min="1" value="{{if .Position}}{{.Position}}{{end}}"
+                   aria-label="Order for {{.Exercise.Name}}">
+          </label>
+          <label><small>sets</small>
+            <input type="number" name="sets_{{.Exercise.ID}}" min="1" max="10" value="{{.Sets}}"
+                   aria-label="Sets for {{.Exercise.Name}}">
+          </label>
+        </div>
+      </div>
+    {{else}}
+      <p class="muted">No exercises yet — <a href="/exercises">add some</a> first.</p>
+    {{end}}
+  </fieldset>
+
+  <button type="submit" class="primary">Save preset</button>
+</form>
+<p><a href="/presets">← Back to presets</a></p>
+{{end}}
