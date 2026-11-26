@@ -5,7 +5,7 @@
   Pick a period and download it as CSV.
 </p>
 
-<form method="get" action="/export/sessions.csv" class="card">
+<form method="get" action="/export/sessions.csv" class="card" id="export-form">
   <div class="two-col">
     <label class="field">
       <span>From</span>
@@ -21,8 +21,11 @@
 
 <p class="quick">
   Quick:
-  {{range $i, $r := .Ranges}}{{if $i}} · {{end}}<a href="/export/sessions.csv?from={{$r.From}}&to={{$r.To}}">{{$r.Label}}</a>{{end}}
+  {{range $i, $r := .Ranges}}{{if $i}} · {{end}}<a href="/export/sessions.csv?from={{$r.From}}&to={{$r.To}}" data-export>{{$r.Label}}</a>{{end}}
 </p>
+
+{{/* Progress and errors from export.js (home-screen app only). */}}
+<p id="export-status" class="flash ok" role="status" hidden></p>
 
 <details class="card">
   <summary>What's in the file</summary>
@@ -31,4 +34,6 @@
   <p class="muted">Session details repeat on each of its rows. A session logged with no sets still gets one row,
     with the exercise columns empty.</p>
 </details>
+
+<script src="/static/export.js"></script>
 {{end}}

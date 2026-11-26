@@ -367,11 +367,141 @@ func (s *Store) CreateExercise(ctx context.Context, name, notes string) (int64, 
 	return res.LastInsertId()
 }
 
+// ErrDuplicateName means another exercise already has that name, ignoring
+// case ("Squat" vs "squat"). The UNIQUE constraint alone is case-sensitive.
+var ErrDuplicateName = errors.New("an exercise with that name already exists")
+
 // UpdateExercise renames an exercise. History follows automatically, because
 // logged sets reference the exercise by id, not by name.
 func (s *Store) UpdateExercise(ctx context.Context, id int64, name, notes string) error {
-	_, err := s.db.ExecContext(ctx, `UPDATE exercises SET name = ?, notes = ? WHERE id = ?`, name, notes, id)
+	var clash int
+	err := s.db.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM exercises WHERE name = ? COLLATE NOCASE AND id <> ?`, name, id).Scan(&clash)
+	if err != nil {
+		return err
+	}
+	if clash > 0 {
+		return ErrDuplicateName
+	}
+	_, err = s.db.ExecContext(ctx, `UPDATE exercises SET name = ?, notes = ? WHERE id = ?`, name, notes, id)
 	return err
+}
+
+// AddExercises creates every name that doesn't exist yet (ignoring case, and
+// ignoring repeats within names). It returns what was added and what was
+// skipped as a duplicate.
+func (s *Store) AddExercises(ctx context.Context, names []string) (added, skipped []string, err error) {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer tx.Rollback()
+
+	for _, name := range names {
+		var exists int
+		if err := tx.QueryRowContext(ctx,
+			`SELECT COUNT(*) FROM exercises WHERE name = ? COLLATE NOCASE`, name).Scan(&exists); err != nil {
+			return nil, nil, err
+		}
+		if exists > 0 {
+			skipped = append(skipped, name)
+			continue
+		}
+		if _, err := tx.ExecContext(ctx, `INSERT INTO exercises (name) VALUES (?)`, name); err != nil {
+			return nil, nil, err
+		}
+		added = append(added, name)
+	}
+	return added, skipped, tx.Commit()
+}
+
+// ExerciseStat is an exercise plus where it's used, for the Exercises page.
+type ExerciseStat struct {
+	Exercise
+	Presets     string // "Day A, Day B", or ""
+	TimesLogged int
+	LastLogged  time.Time // zero if never
+}
+
+func (s *Store) ListExerciseStats(ctx context.Context) ([]ExerciseStat, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT e.id, e.name, e.notes,
+		       (SELECT group_concat(p.name, ', ')
+		          FROM preset_exercises pe JOIN presets p ON p.id = pe.preset_id
+		         WHERE pe.exercise_id = e.id),
+		       (SELECT COUNT(*) FROM session_exercises se WHERE se.exercise_id = e.id),
+		       (SELECT MAX(s.performed_at)
+		          FROM session_exercises se JOIN sessions s ON s.id = se.session_id
+		         WHERE se.exercise_id = e.id)
+		FROM exercises e
+		ORDER BY e.name COLLATE NOCASE`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []ExerciseStat
+	for rows.Next() {
+		var (
+			st            ExerciseStat
+			presets, last sql.NullString
+		)
+		if err := rows.Scan(&st.ID, &st.Name, &st.Notes, &presets, &st.TimesLogged, &last); err != nil {
+			return nil, err
+		}
+		st.Presets = presets.String
+		if last.Valid {
+			st.LastLogged, _ = time.ParseInLocation(dtLayout, last.String, time.Local)
+		}
+		out = append(out, st)
+	}
+	return out, rows.Err()
+}
+
+// MergeExercise folds exercise "from" into "into" (for cleaning up a
+// duplicate or typo): its logged sets and preset slots move over, then
+// "from" is deleted. Nothing logged is lost:
+//   - a session that already has "into" keeps both entries; the "from" one
+//     is detached and kept under its old name, like a deleted exercise;
+//   - a preset that already has "into" just drops the "from" slot.
+func (s *Store) MergeExercise(ctx context.Context, from, into int64) error {
+	if from == into {
+		return errors.New("can't merge an exercise into itself")
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	// Both exercises must exist.
+	var found int
+	if err := tx.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM exercises WHERE id IN (?, ?)`, from, into).Scan(&found); err != nil {
+		return err
+	}
+	if found != 2 {
+		return errors.New("one of those exercises no longer exists")
+	}
+
+	// ?1 = from, ?2 = into in every statement below.
+	steps := []string{
+		// Move logged entries; OR IGNORE skips sessions that already have "into".
+		`UPDATE OR IGNORE session_exercises SET exercise_id = ?2 WHERE exercise_id = ?1`,
+		// Whatever couldn't move: keep it, detached, under the old name.
+		`UPDATE session_exercises SET exercise_name = (SELECT name FROM exercises WHERE id = ?1), exercise_id = NULL
+		 WHERE exercise_id = ?1`,
+		// Same for presets; leftovers are presets that already contain "into".
+		`UPDATE OR IGNORE preset_exercises SET exercise_id = ?2 WHERE exercise_id = ?1`,
+		`DELETE FROM preset_exercises WHERE exercise_id = ?1`,
+		`DELETE FROM exercises WHERE id = ?1`,
+	}
+	for _, q := range steps {
+		if _, err := tx.ExecContext(ctx, q, from, into); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
 }
 
 // DeleteExercise removes an exercise and drops it from presets. Its logged
@@ -469,9 +599,11 @@ func (s *Store) GetPreset(ctx context.Context, id int64) (Preset, error) {
 }
 
 // SavePreset creates (id == 0) or updates a preset and replaces its exercise
-// list with items, in the given order. Only Exercise.ID and Sets are read
-// from each item. Everything runs in one transaction, so a failure never
-// leaves a half-saved preset.
+// list with items, in the given order. Each item is either an existing
+// exercise (Exercise.ID set) or a new one to create (ID 0, Exercise.Name
+// set; reuses an exercise with that name if one exists). Everything runs in
+// one transaction, so a failure never leaves a half-saved preset or stray
+// new exercises.
 func (s *Store) SavePreset(ctx context.Context, id int64, name string, items []PresetExercise) (int64, error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -497,13 +629,34 @@ func (s *Store) SavePreset(ctx context.Context, id int64, name string, items []P
 	}
 
 	for pos, it := range items {
+		exID := it.ID
+		if exID == 0 {
+			if exID, err = findOrCreateExercise(ctx, tx, it.Name); err != nil {
+				return 0, err
+			}
+		}
 		if _, err := tx.ExecContext(ctx,
 			`INSERT INTO preset_exercises (preset_id, exercise_id, position, sets) VALUES (?, ?, ?, ?)`,
-			id, it.ID, pos+1, it.Sets); err != nil {
+			id, exID, pos+1, it.Sets); err != nil {
 			return 0, err
 		}
 	}
 	return id, tx.Commit()
+}
+
+// findOrCreateExercise returns the id of the exercise called name (ignoring
+// case), creating it if needed.
+func findOrCreateExercise(ctx context.Context, tx *sql.Tx, name string) (int64, error) {
+	var id int64
+	err := tx.QueryRowContext(ctx, `SELECT id FROM exercises WHERE name = ? COLLATE NOCASE`, name).Scan(&id)
+	if errors.Is(err, sql.ErrNoRows) {
+		res, err := tx.ExecContext(ctx, `INSERT INTO exercises (name) VALUES (?)`, name)
+		if err != nil {
+			return 0, err
+		}
+		return res.LastInsertId()
+	}
+	return id, err
 }
 
 // ---------------------------------------------------------------------------

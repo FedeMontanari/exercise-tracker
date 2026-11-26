@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"path/filepath"
 	"reflect"
 	"testing"
@@ -157,5 +158,134 @@ func TestMigrationKeepsData(t *testing.T) {
 	// And the new delete behaviour works on the migrated tables.
 	if err := s.DeleteExercise(context.Background(), 1); err != nil {
 		t.Errorf("delete after migration: %v", err)
+	}
+}
+
+// TestSavePresetCreatesExercises covers "+ Create" in the preset editor:
+// new names are created (or matched to an existing one) in the same save.
+func TestSavePresetCreatesExercises(t *testing.T) {
+	ctx := context.Background()
+	s := newTestStore(t)
+
+	exercises, _ := s.ListExercises(ctx)
+	before := len(exercises)
+
+	items := []PresetExercise{
+		{Exercise: Exercise{Name: "Pull-up"}, Sets: 4},     // new
+		{Exercise: Exercise{ID: exercises[0].ID}, Sets: 3}, // existing, by id
+		{Exercise: Exercise{Name: "exercise 2"}, Sets: 2},  // existing, matched by name
+	}
+	id, err := s.SavePreset(ctx, 0, "Day C", items)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	p, err := s.GetPreset(ctx, id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := p.ExerciseNames(); got != "Pull-up, Exercise 1, Exercise 2" {
+		t.Errorf("preset order = %q", got)
+	}
+	if p.Exercises[0].Sets != 4 {
+		t.Errorf("sets = %d, want 4", p.Exercises[0].Sets)
+	}
+	exercises, _ = s.ListExercises(ctx)
+	if len(exercises) != before+1 {
+		t.Errorf("want exactly one new exercise, got %d → %d", before, len(exercises))
+	}
+
+	// A failed save (duplicate preset name) must not leave a new exercise behind.
+	_, err = s.SavePreset(ctx, 0, "Day C", []PresetExercise{{Exercise: Exercise{Name: "Dips"}, Sets: 3}})
+	if err == nil {
+		t.Fatal("expected duplicate preset name to fail")
+	}
+	exercises, _ = s.ListExercises(ctx)
+	if len(exercises) != before+1 {
+		t.Error("failed save left a stray exercise behind")
+	}
+}
+
+func TestAddAndRenameRejectDuplicates(t *testing.T) {
+	ctx := context.Background()
+	s := newTestStore(t)
+
+	added, skipped, err := s.AddExercises(ctx, []string{"Squat", "exercise 1", "squat", "Bench press"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(added, []string{"Squat", "Bench press"}) {
+		t.Errorf("added = %v", added)
+	}
+	if !reflect.DeepEqual(skipped, []string{"exercise 1", "squat"}) {
+		t.Errorf("skipped = %v", skipped)
+	}
+
+	exercises, _ := s.ListExercises(ctx)
+	var benchID int64
+	for _, e := range exercises {
+		if e.Name == "Bench press" {
+			benchID = e.ID
+		}
+	}
+	if err := s.UpdateExercise(ctx, benchID, "SQUAT", ""); !errors.Is(err, ErrDuplicateName) {
+		t.Errorf("rename onto existing name: err = %v, want ErrDuplicateName", err)
+	}
+	if err := s.UpdateExercise(ctx, benchID, "bench Press", "flat"); err != nil {
+		t.Errorf("changing only the case of its own name should work: %v", err)
+	}
+}
+
+func TestMergeExercise(t *testing.T) {
+	ctx := context.Background()
+	s := newTestStore(t)
+	at := func(v string) time.Time { tm, _ := time.ParseInLocation(dtLayout, v, time.Local); return tm }
+
+	s.AddExercises(ctx, []string{"Bench press", "Bnech press"})
+	exercises, _ := s.ListExercises(ctx)
+	ids := map[string]int64{}
+	for _, e := range exercises {
+		ids[e.Name] = e.ID
+	}
+	good, typo := ids["Bench press"], ids["Bnech press"]
+
+	presets, _ := s.ListPresets(ctx)
+	dayA := presets[0].ID
+	// Day A has both; Day B only the typo.
+	s.SavePreset(ctx, dayA, "Day A", []PresetExercise{{Exercise: Exercise{ID: good}, Sets: 3}, {Exercise: Exercise{ID: typo}, Sets: 3}})
+	s.SavePreset(ctx, presets[1].ID, "Day B", []PresetExercise{{Exercise: Exercise{ID: typo}, Sets: 4}})
+
+	// Session 1 logged only the typo; session 2 logged both.
+	s.SaveSession(ctx, Session{PresetID: dayA, PerformedAt: at("2026-11-01T07:00"), Energy: 5,
+		Exercises: []SessionExercise{{ExerciseID: typo, Reps: []int{8, 8}}}})
+	s.SaveSession(ctx, Session{PresetID: dayA, PerformedAt: at("2026-11-02T07:00"), Energy: 5,
+		Exercises: []SessionExercise{{ExerciseID: good, Reps: []int{10}}, {ExerciseID: typo, Reps: []int{6}}}})
+
+	if err := s.MergeExercise(ctx, typo, good); err != nil {
+		t.Fatal(err)
+	}
+
+	sessions, _ := s.ListSessions(ctx, SessionFilter{})
+	byDay := map[string]Session{}
+	for _, sess := range sessions {
+		byDay[sess.PerformedAt.Format("02")] = sess
+	}
+	if se := byDay["01"].Exercises[0]; se.ExerciseID != good || se.RepsText() != "8/8" {
+		t.Errorf("session 1 entry = %+v, want moved to Bench press", se)
+	}
+	// Session 2 already had Bench press: the typo entry is kept, detached.
+	if got := byDay["02"].Exercises; len(got) != 2 || !got[1].Deleted() || got[1].Name != "Bnech press" {
+		t.Errorf("session 2 entries = %+v", got)
+	}
+
+	presets, _ = s.ListPresets(ctx)
+	if got := presets[0].ExerciseNames(); got != "Bench press" {
+		t.Errorf("Day A = %q, want just Bench press", got)
+	}
+	if got := presets[1]; got.ExerciseNames() != "Bench press" || got.Exercises[0].Sets != 4 {
+		t.Errorf("Day B = %+v, want Bench press with 4 sets", got)
+	}
+	if err := s.MergeExercise(ctx, typo, good); err == nil {
+		t.Error("merging a deleted exercise should fail")
 	}
 }

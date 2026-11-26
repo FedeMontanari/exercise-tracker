@@ -1,23 +1,69 @@
 {{define "content"}}
-<h1>Exercises</h1>
+<h1>Exercises <small class="muted">({{len .Exercises}})</small></h1>
 
-<form method="post" action="/exercises" class="card row-form">
-  <input name="name" placeholder="New exercise name" required>
-  <input name="notes" placeholder="Notes (optional)">
-  <button type="submit" class="primary">Add</button>
+{{/* One box to both search the list and add a new exercise.
+     exercises.js filters as you type and warns about duplicates/typos. */}}
+<form method="post" action="/exercises" class="card quick-add" id="quick-add">
+  <input type="search" name="names" id="ex-search" placeholder="🔍 Search or add an exercise…"
+         autocomplete="off" autocapitalize="words" enterkeyhint="done" aria-label="Search or add an exercise"
+         {{if .Focus}}autofocus{{end}}>
+  <div class="ex-hint" id="ex-hint" role="status" hidden></div>
+  <button type="submit" class="primary" id="ex-add" hidden>+ Add</button>
 </form>
 
-{{range .Exercises}}
-  {{/* One form per row. The Delete button uses formaction to post the same
-       form to a different URL, avoiding nested forms. */}}
-  <form method="post" action="/exercises/{{.ID}}" class="card row-form">
-    <input name="name" value="{{.Name}}" required aria-label="Name">
-    <input name="notes" value="{{.Notes}}" placeholder="Notes" aria-label="Notes">
-    <button type="submit">Save</button>
-    <button type="submit" class="link danger" formaction="/exercises/{{.ID}}/delete" formnovalidate
-            onclick="return confirm('Delete this exercise? It is removed from presets; its logged sets are kept.')">Delete</button>
+<details class="card bulk">
+  <summary>Add several at once</summary>
+  <form method="post" action="/exercises">
+    <textarea name="names" id="bulk-names" rows="5" autocapitalize="words"
+              placeholder="One per line, e.g.&#10;Squat&#10;Bench press&#10;Barbell row"></textarea>
+    <ul class="bulk-warnings" id="bulk-warnings"></ul>
+    <p class="hint">Names that already exist are skipped.</p>
+    <button type="submit" class="primary">Add all</button>
   </form>
-{{else}}
-  <p class="muted">No exercises yet.</p>
-{{end}}
+</details>
+
+<ul class="ex-list" id="ex-list">
+  {{range .Exercises}}
+    <li class="ex-item" data-id="{{.ID}}" data-name="{{.Name}}">
+      <details>
+        <summary>
+          <span class="ex-title">{{.Name}}</span>
+          <small class="muted">
+            {{with .Presets}}{{.}} · {{end}}
+            {{if .TimesLogged}}logged {{.TimesLogged}}× · last {{.LastLogged.Format "02 Jan"}}{{else}}never logged{{end}}
+          </small>
+          {{with .Notes}}<small class="ex-notes">{{.}}</small>{{end}}
+        </summary>
+
+        <form method="post" action="/exercises/{{.ID}}" class="ex-edit">
+          <label class="field"><span>Name</span>
+            <input name="name" value="{{.Name}}" required autocapitalize="words">
+          </label>
+          <label class="field"><span>Notes</span>
+            <input name="notes" value="{{.Notes}}" placeholder="Cues, setup, machine settings…">
+          </label>
+          <div class="ex-actions">
+            <button type="submit" class="primary">Save</button>
+            <button type="submit" class="link danger" formaction="/exercises/{{.ID}}/delete" formnovalidate
+                    onclick="return confirm('Delete {{.Name}}? It is removed from presets; its logged sets are kept.')">Delete</button>
+          </div>
+        </form>
+
+        {{/* exercises.js fills the list when this panel opens, likely duplicates first. */}}
+        <form method="post" action="/exercises/{{.ID}}/merge" class="merge"
+              onsubmit="return confirm('Merge {{.Name}} into the selected exercise? Its logged sets move over and {{.Name}} is removed.')">
+          <label>
+            <span>Duplicate? Merge into</span>
+            <select name="into" required><option value="">Pick the one to keep…</option></select>
+          </label>
+          <button type="submit">Merge</button>
+        </form>
+      </details>
+    </li>
+  {{end}}
+</ul>
+<p class="muted" id="ex-none" {{if .Exercises}}hidden{{end}}>No exercises match.</p>
+
+<script src="/static/similar.js"></script>
+<script src="/static/exercises.js"></script>
 {{end}}

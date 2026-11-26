@@ -9,7 +9,6 @@ import (
 	"log"
 	"net/http"
 	"net/url"
-	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -47,6 +46,8 @@ func NewApp(store *Store, weightUnit string) (*App, error) {
 		"mul":          func(a, b int) int { return a * b },
 		"add":          func(a, b int) int { return a + b },
 		"unit":         func() string { return weightUnit },
+		// blankItem is the empty row the preset editor clones for new exercises.
+		"blankItem": func() PresetExercise { return PresetExercise{Sets: 3} },
 	}
 
 	pages := map[string]*template.Template{}
@@ -85,6 +86,7 @@ func (a *App) Routes() http.Handler {
 	mux.HandleFunc("GET /exercises", a.listExercises)
 	mux.HandleFunc("POST /exercises", a.createExercise)
 	mux.HandleFunc("POST /exercises/{id}", a.updateExercise)
+	mux.HandleFunc("POST /exercises/{id}/merge", a.mergeExercise)
 	mux.HandleFunc("POST /exercises/{id}/delete", a.deleteExercise)
 
 	mux.HandleFunc("GET /presets", a.listPresets)
@@ -618,40 +620,69 @@ func (a *App) progress(w http.ResponseWriter, r *http.Request) {
 
 type exercisesData struct {
 	Page
-	Exercises []Exercise
+	Exercises []ExerciseStat
+	Focus     bool // put the cursor back in the add box (right after adding)
 }
 
 func (a *App) listExercises(w http.ResponseWriter, r *http.Request) {
-	exercises, err := a.store.ListExercises(r.Context())
+	exercises, err := a.store.ListExerciseStats(r.Context())
 	if err != nil {
 		serverError(w, err)
 		return
 	}
-	a.render(w, "exercises.html", exercisesData{Page: newPage(r, "Exercises", "exercises"), Exercises: exercises})
+	a.render(w, "exercises.html", exercisesData{
+		Page:      newPage(r, "Exercises", "exercises"),
+		Exercises: exercises,
+		Focus:     r.URL.Query().Has("added"),
+	})
 }
 
-func exerciseFromForm(r *http.Request) (name, notes string, err error) {
-	if err = r.ParseForm(); err != nil {
-		return
-	}
-	name = strings.TrimSpace(r.PostForm.Get("name"))
-	notes = strings.TrimSpace(r.PostForm.Get("notes"))
-	if name == "" {
-		err = errors.New("exercise name is required")
-	}
-	return
-}
-
+// createExercise adds one or more exercises. The "names" field holds one
+// name per line, so the same handler serves the quick-add box and the
+// "add several" textarea. Names that already exist (ignoring case) are skipped.
 func (a *App) createExercise(w http.ResponseWriter, r *http.Request) {
-	name, notes, err := exerciseFromForm(r)
-	if err == nil {
-		_, err = a.store.CreateExercise(r.Context(), name, notes)
-	}
-	if err != nil {
-		redirect(w, r, "/exercises", "err", friendly(err, "exercise"))
+	if err := r.ParseForm(); err != nil {
+		redirect(w, r, "/exercises", "err", err.Error())
 		return
 	}
-	redirect(w, r, "/exercises", "msg", "Added “"+name+"”.")
+	var names []string
+	for _, line := range strings.Split(r.PostForm.Get("names"), "\n") {
+		if name := strings.TrimSpace(line); name != "" {
+			names = append(names, name)
+		}
+	}
+	if len(names) == 0 {
+		redirect(w, r, "/exercises", "err", "Type an exercise name first.")
+		return
+	}
+
+	added, skipped, err := a.store.AddExercises(r.Context(), names)
+	if err != nil {
+		serverError(w, err)
+		return
+	}
+
+	var parts []string
+	if len(added) > 0 {
+		parts = append(parts, "Added "+quoteList(added)+".")
+	}
+	if len(skipped) > 0 {
+		parts = append(parts, "Skipped (already exists): "+quoteList(skipped)+".")
+	}
+	kind := "msg"
+	if len(added) == 0 {
+		kind = "err"
+	}
+	redirect(w, r, "/exercises?added=1", kind, strings.Join(parts, " "))
+}
+
+// quoteList formats names as “A”, “B”, “C”.
+func quoteList(names []string) string {
+	quoted := make([]string, len(names))
+	for i, n := range names {
+		quoted[i] = "“" + n + "”"
+	}
+	return strings.Join(quoted, ", ")
 }
 
 func (a *App) updateExercise(w http.ResponseWriter, r *http.Request) {
@@ -660,15 +691,51 @@ func (a *App) updateExercise(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	name, notes, err := exerciseFromForm(r)
-	if err == nil {
-		err = a.store.UpdateExercise(r.Context(), id, name, notes)
+	if err := r.ParseForm(); err != nil {
+		redirect(w, r, "/exercises", "err", err.Error())
+		return
 	}
-	if err != nil {
-		redirect(w, r, "/exercises", "err", friendly(err, "exercise"))
+	name := strings.TrimSpace(r.PostForm.Get("name"))
+	notes := strings.TrimSpace(r.PostForm.Get("notes"))
+	if name == "" {
+		redirect(w, r, "/exercises", "err", "Exercise name is required.")
+		return
+	}
+
+	err = a.store.UpdateExercise(r.Context(), id, name, notes)
+	if errors.Is(err, ErrDuplicateName) {
+		redirect(w, r, "/exercises", "err",
+			"There's already an exercise called “"+name+"”. To combine the two, open one and use Merge.")
+		return
+	} else if err != nil {
+		serverError(w, err)
 		return
 	}
 	redirect(w, r, "/exercises", "msg", "Saved “"+name+"”.")
+}
+
+// mergeExercise folds the exercise in the URL into the one picked in the
+// form ("into"), moving its logged sets and preset slots over.
+func (a *App) mergeExercise(w http.ResponseWriter, r *http.Request) {
+	from, err := pathID(r)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	if err := r.ParseForm(); err != nil {
+		redirect(w, r, "/exercises", "err", err.Error())
+		return
+	}
+	into, err := strconv.ParseInt(r.PostForm.Get("into"), 10, 64)
+	if err != nil {
+		redirect(w, r, "/exercises", "err", "Pick the exercise to merge into.")
+		return
+	}
+	if err := a.store.MergeExercise(r.Context(), from, into); err != nil {
+		redirect(w, r, "/exercises", "err", "Couldn't merge: "+err.Error())
+		return
+	}
+	redirect(w, r, "/exercises", "msg", "Merged. Its logged sets and preset slots now belong to the exercise you kept.")
 }
 
 func (a *App) deleteExercise(w http.ResponseWriter, r *http.Request) {
@@ -702,20 +769,18 @@ func (a *App) listPresets(w http.ResponseWriter, r *http.Request) {
 	a.render(w, "presets.html", presetsData{Page: newPage(r, "Presets", "presets"), Presets: presets})
 }
 
-// presetRow is one exercise line in the preset form: a checkbox, an order
-// number and a target number of sets.
-type presetRow struct {
-	Exercise Exercise
-	Checked  bool
-	Position int
-	Sets     int
+// exerciseOption is one entry in the preset editor's search list.
+// The template writes the list into the page as JSON for the search box.
+type exerciseOption struct {
+	ID   int64  `json:"id"`
+	Name string `json:"name"`
 }
 
 type presetFormData struct {
 	Page
-	Preset Preset
-	Rows   []presetRow
-	Action string
+	Preset    Preset
+	Exercises []exerciseOption // every exercise, for search-to-add
+	Action    string
 }
 
 // presetForm serves both /presets/new and /presets/{id}/edit.
@@ -738,40 +803,25 @@ func (a *App) presetForm(w http.ResponseWriter, r *http.Request) {
 		serverError(w, err)
 		return
 	}
-
-	// Mark exercises already in the preset, with their position and sets.
-	inPreset := map[int64]presetRow{}
-	for i, pe := range preset.Exercises {
-		inPreset[pe.ID] = presetRow{Checked: true, Position: i + 1, Sets: pe.Sets}
-	}
-	rows := make([]presetRow, len(exercises))
+	options := make([]exerciseOption, len(exercises))
 	for i, e := range exercises {
-		row, ok := inPreset[e.ID]
-		if !ok {
-			row.Sets = 3
-		}
-		row.Exercise = e
-		rows[i] = row
+		options[i] = exerciseOption{ID: e.ID, Name: e.Name}
 	}
-	// Show the preset's exercises first, in order, then the rest A–Z.
-	sort.SliceStable(rows, func(i, j int) bool {
-		pi, pj := rows[i].Position, rows[j].Position
-		if pi == 0 || pj == 0 {
-			return pi != 0 && pj == 0
-		}
-		return pi < pj
-	})
 
 	title, action := "New preset", "/presets"
 	if preset.ID != 0 {
 		title, action = "Edit "+preset.Name, fmt.Sprintf("/presets/%d", preset.ID)
 	}
 	a.render(w, "preset_form.html", presetFormData{
-		Page: newPage(r, title, "presets"), Preset: preset, Rows: rows, Action: action,
+		Page: newPage(r, title, "presets"), Preset: preset, Exercises: options, Action: action,
 	})
 }
 
 // savePreset handles both create (POST /presets) and update (POST /presets/{id}).
+//
+// The form posts its list as two parallel fields, in on-screen (dragged)
+// order: "item" (an exercise id, or "new:<name>" for one to create) and
+// "sets". So item[i] goes with sets[i], and position is just i.
 func (a *App) savePreset(w http.ResponseWriter, r *http.Request) {
 	var id int64
 	formURL := "/presets/new"
@@ -794,38 +844,41 @@ func (a *App) savePreset(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Collect ticked exercises and sort them by the order number typed next
-	// to each one (blank orders go last, keeping their on-screen order).
-	type pick struct {
-		item     PresetExercise
-		pos, idx int
+	itemValues, setValues := r.PostForm["item"], r.PostForm["sets"]
+	if len(itemValues) != len(setValues) {
+		redirect(w, r, formURL, "err", "The exercise list was incomplete; please try again.")
+		return
 	}
-	var picks []pick
-	for i, v := range r.PostForm["exercise"] {
-		exID, err := strconv.ParseInt(v, 10, 64)
-		if err != nil {
+
+	var items []PresetExercise
+	seen := map[string]bool{} // ignore duplicates (by id, or by name for new ones)
+	for i, v := range itemValues {
+		var it PresetExercise
+		key := v
+		if newName, ok := strings.CutPrefix(v, "new:"); ok {
+			it.Name = strings.TrimSpace(newName)
+			key = "new:" + strings.ToLower(it.Name)
+			if it.Name == "" {
+				continue
+			}
+		} else {
+			exID, err := strconv.ParseInt(v, 10, 64)
+			if err != nil {
+				continue
+			}
+			it.ID = exID
+		}
+		if seen[key] {
 			continue
 		}
-		pos, err := strconv.Atoi(r.PostForm.Get(fmt.Sprintf("pos_%d", exID)))
-		if err != nil || pos <= 0 {
-			pos = 1 << 30
-		}
-		sets, err := strconv.Atoi(r.PostForm.Get(fmt.Sprintf("sets_%d", exID)))
+		seen[key] = true
+
+		sets, err := strconv.Atoi(setValues[i])
 		if err != nil {
 			sets = 3
 		}
-		sets = min(max(sets, 1), 10)
-		picks = append(picks, pick{PresetExercise{Exercise: Exercise{ID: exID}, Sets: sets}, pos, i})
-	}
-	sort.Slice(picks, func(i, j int) bool {
-		if picks[i].pos != picks[j].pos {
-			return picks[i].pos < picks[j].pos
-		}
-		return picks[i].idx < picks[j].idx
-	})
-	items := make([]PresetExercise, len(picks))
-	for i, p := range picks {
-		items[i] = p.item
+		it.Sets = min(max(sets, 1), 10)
+		items = append(items, it)
 	}
 
 	if _, err := a.store.SavePreset(r.Context(), id, name, items); err != nil {

@@ -110,9 +110,6 @@ button.link { background: none; border: 0; padding: 0; color: var(--accent); tex
 .check { display: flex; gap: 0.5rem; align-items: center; margin-bottom: 1rem; cursor: pointer; }
 .check input { width: 1.2rem; height: 1.2rem; }
 
-/* Exercise rows */
-.row-form { display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; padding: 0.6rem; }
-.row-form input { flex: 1 1 160px; }
 
 /* Preset form: checkbox + order number */
 .pick { display: flex; justify-content: space-between; align-items: center; gap: 0.5rem; border-bottom: 1px solid var(--border); padding: 0.3rem 0; }
@@ -224,3 +221,110 @@ table.grid tr.meta th { color: var(--muted); }
   position: sticky; bottom: 12px; z-index: 2;
   box-shadow: 0 6px 18px rgb(0 0 0 / 0.25);
 }
+
+/* --- Preset editor -------------------------------------------------------- */
+.items { list-style: none; margin: 0; padding: 0; }
+.item {
+  display: flex; align-items: center; gap: 0.5rem;
+  padding: 0.45rem 0.5rem; margin-bottom: 0.4rem;
+  border: 1px solid var(--border); border-radius: 8px; background: var(--card);
+}
+.item.dragging { opacity: 0.4; }
+.handle {
+  cursor: grab; touch-action: none; user-select: none; -webkit-user-select: none;
+  color: var(--muted); font-size: 1.3rem; line-height: 1; padding: 0.35rem 0.25rem;
+}
+.item-name { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.badge-new {
+  font-size: 0.7rem; padding: 0.05rem 0.4rem; border-radius: 999px;
+  background: var(--accent); color: var(--accent-text); vertical-align: middle;
+}
+.stepper { display: flex; align-items: center; gap: 0.25rem; white-space: nowrap; }
+.stepper button, .item .remove {
+  width: 2.1rem; height: 2.1rem; padding: 0; border-radius: 8px; line-height: 1; font-size: 1.1rem;
+}
+.sets-label { color: var(--muted); font-size: 0.85rem; min-width: 3.2rem; text-align: center; }
+.sets-label b { color: var(--text); font-size: 1rem; }
+.item .remove { border: 0; background: none; color: var(--muted); }
+.empty { margin: 0.25rem 0 0.75rem; }
+
+.adder { margin-top: 0.5rem; }
+input[type=search] {
+  width: 100%; padding: 0.6rem 0.75rem; font: inherit;
+  border: 1px solid var(--border); border-radius: 8px; background: var(--bg); color: var(--text);
+}
+.results { list-style: none; margin: 0.25rem 0 0; padding: 0; }
+.results button {
+  width: 100%; display: flex; justify-content: space-between; align-items: center;
+  text-align: left; margin-top: 0.25rem; border-radius: 8px;
+}
+.results small { color: var(--accent); font-weight: 600; }
+.drag-ghost { opacity: 0.9 !important; box-shadow: 0 8px 24px rgb(0 0 0 / 0.35); }
+
+/* --- Exercises page ------------------------------------------------------- */
+.quick-add { display: flex; flex-direction: column; gap: 0.5rem; }
+.quick-add #ex-add { width: 100%; }
+.ex-hint { font-size: 0.9rem; }
+.ex-hint.warn { color: #b45309; }
+@media (prefers-color-scheme: dark) { .ex-hint.warn { color: #fbbf24; } }
+
+.bulk summary { color: var(--accent); }
+.bulk form { margin-top: 0.6rem; }
+.bulk textarea { margin-bottom: 0.25rem; }
+.bulk-warnings { margin: 0 0 0.25rem; padding-left: 1.1rem; color: #b45309; font-size: 0.9rem; }
+@media (prefers-color-scheme: dark) { .bulk-warnings { color: #fbbf24; } }
+
+.ex-list { list-style: none; margin: 0; padding: 0; }
+.ex-item {
+  background: var(--card); border: 1px solid var(--border); border-radius: var(--radius);
+  margin-bottom: 0.4rem;
+}
+.ex-item summary {
+  display: flex; flex-direction: column; gap: 0.1rem;
+  padding: 0.6rem 0.8rem; cursor: pointer; list-style: none; position: relative; padding-right: 2rem;
+}
+.ex-item summary::-webkit-details-marker { display: none; }
+.ex-item summary::after { content: "›"; position: absolute; right: 0.9rem; top: 50%; translate: 0 -50%; color: var(--muted); font-size: 1.3rem; transition: rotate 0.15s; }
+.ex-item details[open] summary::after { rotate: 90deg; }
+.ex-title { font-weight: 600; }
+.ex-notes { color: var(--muted); font-style: italic; }
+.ex-edit, .merge { padding: 0 0.8rem 0.8rem; }
+.ex-edit .field { margin-bottom: 0.6rem; }
+.ex-actions { display: flex; justify-content: space-between; align-items: center; }
+.merge { display: flex; gap: 0.5rem; align-items: flex-end; border-top: 1px solid var(--border); padding-top: 0.7rem; }
+.merge label { flex: 1; display: flex; flex-direction: column; gap: 0.25rem; font-size: 0.85rem; color: var(--muted); }
+.merge select {
+  font: inherit; padding: 0.5rem; border-radius: 8px;
+  border: 1px solid var(--border); background: var(--bg); color: var(--text);
+}
+
+/* --- Compact log form ----------------------------------------------------- */
+/* Visually hidden but still read by screen readers. */
+.sr-only {
+  position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+  overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0;
+}
+.session-form fieldset, .session-form .field { margin-bottom: 0.8rem; }
+.session-form legend { margin-bottom: 0.35rem; }
+
+/* Date & time + warm-up on one row */
+.top-row { display: flex; gap: 0.5rem; margin-bottom: 0.8rem; }
+.top-row .when { flex: 1; min-width: 0; }
+.top-row .check.toggle { margin: 0; padding: 0 0.75rem; white-space: nowrap; }
+
+/* Legend with a short explanation on the right */
+.row-legend { display: flex; justify-content: space-between; align-items: baseline; gap: 0.5rem; width: 100%; }
+.row-legend small { font-weight: normal; font-size: 0.75rem; }
+
+.energy span { padding: 0.45rem 0; }
+
+/* Exercise header on one line: name, then last time */
+.session-form .ex-row { padding: 0.45rem 0; }
+.session-form .ex-name { flex-direction: row; flex-wrap: wrap; align-items: baseline; column-gap: 0.4rem; margin-bottom: 0.3rem; }
+.session-form .ex-name small { font-size: 0.75rem; }
+.session-form .ex-head .repeat { padding: 0.2rem 0.55rem; }
+
+.notes textarea { resize: none; overflow: hidden; min-height: 2.6rem; }
+.top-row .when input { padding-inline: 0.5rem; }
+.top-row .when input::-webkit-calendar-picker-indicator { margin-left: 0; padding: 0; }
+.top-row .check.toggle { gap: 0.4rem; padding: 0 0.6rem; }

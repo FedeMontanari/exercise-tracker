@@ -1,38 +1,61 @@
 {{define "content"}}
+<p class="back"><a href="/presets">← All presets</a></p>
 <h1>{{.Title}}</h1>
 
-<form method="post" action="{{.Action}}" class="card">
+<form method="post" action="{{.Action}}" class="card preset-editor">
   <label class="field">
     <span>Name</span>
-    <input name="name" value="{{.Preset.Name}}" placeholder="e.g. Day A" required autofocus>
+    <input name="name" value="{{.Preset.Name}}" placeholder="e.g. Day A" required>
   </label>
 
   <fieldset>
     <legend>Exercises</legend>
-    <p class="hint">Tick to include. <strong>#</strong> sets the order, <strong>sets</strong> how many reps boxes the log form shows.</p>
-    {{range .Rows}}
-      <div class="pick">
-        <label class="check">
-          <input type="checkbox" name="exercise" value="{{.Exercise.ID}}" {{if .Checked}}checked{{end}}>
-          <span>{{.Exercise.Name}}</span>
-        </label>
-        <div class="pick-nums">
-          <label><small>#</small>
-            <input type="number" name="pos_{{.Exercise.ID}}" min="1" value="{{if .Position}}{{.Position}}{{end}}"
-                   aria-label="Order for {{.Exercise.Name}}">
-          </label>
-          <label><small>sets</small>
-            <input type="number" name="sets_{{.Exercise.ID}}" min="1" max="10" value="{{.Sets}}"
-                   aria-label="Sets for {{.Exercise.Name}}">
-          </label>
-        </div>
-      </div>
-    {{else}}
-      <p class="muted">No exercises yet — <a href="/exercises">add some</a> first.</p>
-    {{end}}
+    <p class="hint">Drag <span aria-hidden="true">⠿</span> to reorder.</p>
+
+    {{/* The list is posted in its on-screen order: one "item" + one "sets"
+         per row. preset_form.js adds, removes and reorders rows. */}}
+    <ul class="items" id="items">
+      {{range .Preset.Exercises}}
+        {{template "presetItem" .}}
+      {{end}}
+    </ul>
+    <p class="muted empty" id="items-empty" {{if .Preset.Exercises}}hidden{{end}}>
+      No exercises yet. Search below to add some.
+    </p>
+
+    <div class="adder">
+      <input type="search" id="exercise-search" placeholder="🔍 Add an exercise…" autocomplete="off"
+             enterkeyhint="done" aria-label="Search exercises to add" aria-controls="search-results">
+      <ul class="results" id="search-results"></ul>
+    </div>
   </fieldset>
 
   <button type="submit" class="primary">Save preset</button>
 </form>
-<p><a href="/presets">← Back to presets</a></p>
+
+{{/* Blank row that preset_form.js clones when you add an exercise. */}}
+<template id="item-template">
+  {{template "presetItem" blankItem}}
+</template>
+
+{{/* All exercises as JSON, for the search box. html/template encodes it safely. */}}
+<script type="application/json" id="all-exercises">{{.Exercises}}</script>
+<script src="/static/vendor/Sortable.min.js"></script>
+<script src="/static/similar.js"></script>
+<script src="/static/preset_form.js"></script>
+{{end}}
+
+{{define "presetItem"}}
+<li class="item">
+  <span class="handle" aria-hidden="true" title="Drag to reorder">⠿</span>
+  <input type="hidden" name="item" value="{{.ID}}">
+  <span class="item-name">{{.Name}}</span>
+  <span class="stepper">
+    <button type="button" data-step="-1" aria-label="Fewer sets">−</button>
+    <input type="hidden" name="sets" value="{{.Sets}}">
+    <span class="sets-label"><b>{{.Sets}}</b> sets</span>
+    <button type="button" data-step="1" aria-label="More sets">+</button>
+  </span>
+  <button type="button" class="remove" aria-label="Remove {{.Name}}">✕</button>
+</li>
 {{end}}

@@ -3,21 +3,21 @@
 {{define "sessionForm"}}
 <form method="post" action="{{.Action}}" class="card session-form">
 
-  {{/* 1. Date & time */}}
-  <label class="field">
-    <span>Date &amp; time</span>
-    <input type="datetime-local" name="performed_at" value="{{.Session.PerformedAt.Format "2006-01-02T15:04"}}" required>
-  </label>
-
-  {{/* 2. Warm-up */}}
-  <label class="check toggle">
-    <input type="checkbox" name="warmup" {{if .Session.WarmupDone}}checked{{end}}>
-    <span>Warm-up done</span>
-  </label>
+  {{/* 1 + 2. Date & time and warm-up share a row */}}
+  <div class="top-row">
+    <label class="when">
+      <span class="sr-only">Date &amp; time</span>
+      <input type="datetime-local" name="performed_at" value="{{.Session.PerformedAt.Format "2006-01-02T15:04"}}" required>
+    </label>
+    <label class="check toggle">
+      <input type="checkbox" name="warmup" {{if .Session.WarmupDone}}checked{{end}}>
+      <span>Warm-up</span>
+    </label>
+  </div>
 
   {{/* 3. Energy */}}
   <fieldset>
-    <legend>Energy level</legend>
+    <legend class="row-legend">Energy <small class="muted">0 drained · 10 on fire</small></legend>
     <div class="energy">
       {{range energyLevels}}
         <label style="--hue: {{mul . 12}}">
@@ -26,12 +26,11 @@
         </label>
       {{end}}
     </div>
-    <div class="scale"><small>0 · drained</small><small>10 · on fire</small></div>
   </fieldset>
 
   {{/* 4. Session (preset) */}}
   <fieldset>
-    <legend>Session</legend>
+    <legend class="sr-only">Session</legend>
     {{if .Choosable}}
       <div class="pills">
         {{range .Blocks}}
@@ -50,7 +49,7 @@
        Hidden blocks are also disabled, so their inputs aren't submitted. */}}
   {{range $b := .Blocks}}
     <fieldset class="exercises" data-preset="{{$b.PresetID}}" {{if not $b.Selected}}disabled hidden{{end}}>
-      <legend>Exercises</legend>
+      <legend class="row-legend">Exercises <small class="muted">grey = last time · empty = skipped</small></legend>
       {{range $row := $b.Rows}}
         <div class="ex-row">
           {{if $row.Deleted}}
@@ -87,14 +86,13 @@
       {{else}}
         <p class="muted">No exercises in {{$b.Name}} yet{{if $b.PresetID}} — <a href="/presets/{{$b.PresetID}}/edit">add some</a>{{end}}.</p>
       {{end}}
-      <p class="hint">Grey numbers are last time's reps. Leave an exercise empty to skip it.</p>
     </fieldset>
   {{end}}
 
   {{/* 6. Notes */}}
-  <label class="field">
-    <span>Notes <small class="muted">(optional)</small></span>
-    <textarea name="notes" rows="2" placeholder="How did it go?">{{.Session.Notes}}</textarea>
+  <label class="field notes">
+    <span class="sr-only">Notes</span>
+    <textarea name="notes" rows="1" placeholder="📝 Notes (optional)">{{.Session.Notes}}</textarea>
   </label>
 
   {{/* 7. Submit — sticks to the bottom of the screen while scrolling the form */}}
@@ -112,6 +110,16 @@
       });
       history.replaceState(null, "", "/?preset=" + radio.value); // survives a refresh
     });
+  });
+
+  // Notes start as one line and grow as you type.
+  document.querySelectorAll(".session-form textarea").forEach((area) => {
+    const grow = () => {
+      area.style.height = "auto";
+      area.style.height = area.scrollHeight + "px";
+    };
+    area.addEventListener("input", grow);
+    grow();
   });
 
   // "↺ Same": copy last time's reps (the grey placeholders) into empty boxes.
